@@ -10,10 +10,10 @@ logger = get_logger(__name__)
 
 # Starting sequence
 # Db check
-if not os.path.exists("./data/vinted_notifications.db"):
+if not os.path.exists(db.DB_PATH):
     logger.info("Database not found, creating a new one.")
     # Create the folder if it doesn't exist
-    os.makedirs("./data", exist_ok=True)
+    os.makedirs(db.DATA_DIR, exist_ok=True)
     db.create_or_update_sqlite_db("initial_db.sql")
     logger.info("Database created successfully")
 

@@ -532,7 +532,7 @@ def api_logs():
     limit = int(request.args.get("limit", 100))
     level_filter = request.args.get("level", "all")
 
-    log_file_path = os.path.join("logs", "vinted.log")
+    log_file_path = os.path.join(os.environ.get("VN_LOG_DIR", "logs"), "vinted.log")
 
     if not os.path.exists(log_file_path):
         return jsonify({"logs": [], "total": 0})

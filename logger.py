@@ -3,8 +3,13 @@ import os
 import sys
 from logging.handlers import RotatingFileHandler
 
+# Log directory is configurable (VN_LOG_DIR) so the app can write to a
+# working-dir relative ./logs (default) or an absolute mount such as
+# /data/logs (Home Assistant add-on).
+LOG_DIR = os.environ.get("VN_LOG_DIR", "logs")
+
 # Create logs directory if it doesn't exist
-os.makedirs("logs", exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
 
 
 # Custom filter to exclude specific log messages
@@ -54,7 +59,9 @@ def configure_root_logger():
 
     # File handler for all logs
     file_handler = RotatingFileHandler(
-        "logs/vinted.log", maxBytes=10 * 1024 * 1024, backupCount=5  # 10MB
+        os.path.join(LOG_DIR, "vinted.log"),
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
     )
     file_handler.setLevel(logging.INFO)
     file_formatter = logging.Formatter(

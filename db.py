@@ -1,7 +1,12 @@
+import os
 import sqlite3
 from traceback import print_exc
 
-DB_PATH = "./data/vinted_notifications.db"
+# Data directory is configurable so the app can run both from a working-dir
+# relative ./data (default, e.g. docker-compose) and from an absolute mount
+# such as /data (Home Assistant add-on). Override with VN_DATA_DIR.
+DATA_DIR = os.environ.get("VN_DATA_DIR", "./data")
+DB_PATH = os.path.join(DATA_DIR, "vinted_notifications.db")
 
 
 def get_db_connection():
