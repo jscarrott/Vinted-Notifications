@@ -1,6 +1,7 @@
 /.idea
 vinted.db
-/__pycache__
+__pycache__/
+*.pyc
 /logs/vinted.log
 /vinted_notifications.db
 
