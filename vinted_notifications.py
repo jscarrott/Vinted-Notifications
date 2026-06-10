@@ -84,13 +84,22 @@ def dispatcher_function(input_queue, rss_queue, telegram_queue, signal_queue):
     logger.info("Dispatcher process started")
     try:
         while True:
-            # Get from input queue
+            # Get the structured item from the input queue
             item = input_queue.get()
+            # Telegram and RSS consume the legacy positional tuple
+            legacy = (
+                item["content"],
+                item["url"],
+                item["text"],
+                item["buy_url"],
+                item["buy_text"],
+            )
             # Send to RSS queue
-            rss_queue.put(item)
+            rss_queue.put(legacy)
             # Send to Telegram queue
-            telegram_queue.put(item)
-            # Send to Signal queue
+            telegram_queue.put(legacy)
+            # Signal gets the full payload so it can route by query and format
+            # its own message
             signal_queue.put(item)
     except (KeyboardInterrupt, SystemExit):
         logger.info("Dispatcher process stopped")

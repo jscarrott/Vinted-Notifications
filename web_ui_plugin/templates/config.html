@@ -144,10 +144,22 @@
                                         <small class="form-text text-muted">Your Signal phone number (e.g., +1234567890)</small>
                                     </div>
                                     <div class="mb-3">
-                                        <label for="signal_recipient" class="form-label">Recipient</label>
+                                        <label for="signal_recipient" class="form-label">Default Recipient(s)</label>
                                         <input type="text" class="form-control" id="signal_recipient"
                                                name="signal_recipient" value="{{ params.signal_recipient }}">
-                                        <small class="form-text text-muted">Phone number of the recipient (e.g., +1234567890)</small>
+                                        <small class="form-text text-muted">Used for queries with no specific recipients. One or more numbers separated by <code>;</code></small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="signal_contacts" class="form-label">Contacts</label>
+                                        <textarea class="form-control" id="signal_contacts" name="signal_contacts"
+                                                  rows="3">{{ signal_contacts_text }}</textarea>
+                                        <small class="form-text text-muted">One per line as <code>Name = +1234567890</code>. These appear as checkboxes when adding/editing a query, so you can target queries to specific people.</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="signal_message_template" class="form-label">Message Template</label>
+                                        <textarea class="form-control" id="signal_message_template" name="signal_message_template"
+                                                  rows="5">{{ params.signal_message_template }}</textarea>
+                                        <small class="form-text text-muted">Placeholders: <code>{title}</code> <code>{price}</code> <code>{brand}</code> <code>{size}</code> <code>{url}</code></small>
                                     </div>
                                     <div class="mb-3">
                                         <button type="button" class="btn btn-info" id="check_signal_status">

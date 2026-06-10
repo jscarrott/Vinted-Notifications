@@ -110,7 +110,9 @@ def get_queries():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT id, query, last_item, query_name FROM queries")
+        cursor.execute(
+            "SELECT id, query, last_item, query_name, signal_recipients FROM queries"
+        )
         return cursor.fetchall()
     except Exception:
         print_exc()
@@ -140,23 +142,43 @@ def is_query_in_db(processed_query):
             conn.close()
 
 
-def add_query_to_db(query, name=None):
+def add_query_to_db(query, name=None, signal_recipients=None):
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        if name:
-            cursor.execute(
-                "INSERT INTO queries (query, last_item, query_name) VALUES (?, NULL, ?)",
-                (query, name),
-            )
-        else:
-            cursor.execute(
-                "INSERT INTO queries (query, last_item) VALUES (?, NULL)", (query,)
-            )
+        cursor.execute(
+            "INSERT INTO queries (query, last_item, query_name, signal_recipients) VALUES (?, NULL, ?, ?)",
+            (query, name, signal_recipients),
+        )
         conn.commit()
     except Exception:
         print_exc()
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_query_signal_recipients(query_id):
+    """Return the per-query Signal recipients as a list of phone numbers.
+
+    Returns an empty list if the query has no specific recipients set (the
+    caller should then fall back to the global default recipient).
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT signal_recipients FROM queries WHERE id=?", (query_id,)
+        )
+        result = cursor.fetchone()
+        if result and result[0]:
+            return [r.strip() for r in result[0].split(";") if r.strip()]
+        return []
+    except Exception:
+        print_exc()
+        return []
     finally:
         if conn:
             conn.close()
@@ -215,7 +237,7 @@ def remove_all_queries_from_db():
             conn.close()
 
 
-def update_query_in_db(query_id, query, name):
+def update_query_in_db(query_id, query, name, signal_recipients=None):
     """
     Update an existing query in the database.
 
@@ -223,6 +245,8 @@ def update_query_in_db(query_id, query, name):
         query_id (int): The ID of the query to update
         query (str): The new query URL
         name (str, optional): The new name for the query
+        signal_recipients (str, optional): Semicolon-separated Signal recipient
+            numbers for this query (None/empty falls back to the default)
 
     Returns:
         bool: True if the query was updated successfully, False otherwise
@@ -232,8 +256,8 @@ def update_query_in_db(query_id, query, name):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE queries SET query=?, query_name=? WHERE id=?",
-            (query, name, query_id),
+            "UPDATE queries SET query=?, query_name=?, signal_recipients=? WHERE id=?",
+            (query, name, signal_recipients, query_id),
         )
         conn.commit()
         return True

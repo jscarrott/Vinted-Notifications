@@ -3,6 +3,7 @@ import db
 import core
 import os
 import re
+import json
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 from logger import get_logger
@@ -21,6 +22,34 @@ app = Flask(
 
 # Secret key for session management
 app.secret_key = os.urandom(24)
+
+
+def get_signal_contacts():
+    """Return the configured Signal contacts as a list of {name, number}."""
+    try:
+        contacts = json.loads(db.get_parameter("signal_contacts") or "[]")
+        return [c for c in contacts if c.get("number")]
+    except (ValueError, TypeError):
+        return []
+
+
+def signal_contacts_to_text(contacts):
+    """Render contacts as 'Name = +number' lines for a textarea."""
+    return "\n".join(f"{c.get('name', '')} = {c['number']}" for c in contacts)
+
+
+def parse_signal_contacts_text(text):
+    """Parse 'Name = +number' lines into a list of {name, number}."""
+    contacts = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        name, number = line.split("=", 1)
+        number = number.strip()
+        if number:
+            contacts.append({"name": name.strip(), "number": number})
+    return contacts
 
 
 @app.context_processor
@@ -159,6 +188,9 @@ def queries():
             logger.debug(f"Error getting last timestamp for query {query[0]}: {e}")
             last_found_item = "Never"
 
+        # Per-query Signal recipient numbers (for pre-checking contact boxes)
+        recipients = [r.strip() for r in (query[4] or "").split(";") if r.strip()]
+
         formatted_queries.append(
             {
                 "id": i + 1,
@@ -166,19 +198,27 @@ def queries():
                 "query": query[1],
                 "display": query_name if query_name else query[1],
                 "last_found_item": last_found_item,
+                "recipients": recipients,
             }
         )
 
-    return render_template("queries.html", queries=formatted_queries)
+    return render_template(
+        "queries.html",
+        queries=formatted_queries,
+        signal_contacts=get_signal_contacts(),
+    )
 
 
 @app.route("/add_query", methods=["POST"])
 def add_query():
     query = request.form.get("query")
     query_name = request.form.get("query_name", "").strip()
+    signal_recipients = ";".join(request.form.getlist("signal_recipients")) or None
     if query:
         message, is_new_query = core.process_query(
-            query, name=query_name if query_name != "" else None
+            query,
+            name=query_name if query_name != "" else None,
+            signal_recipients=signal_recipients,
         )
         if is_new_query:
             flash(f"Query added: {query}", "success")
@@ -216,10 +256,14 @@ def remove_all_queries():
 def update_query(query_id):
     query = request.form.get("query")
     query_name = request.form.get("query_name", "").strip()
+    signal_recipients = ";".join(request.form.getlist("signal_recipients")) or None
 
     if query:
         message, success = core.process_update_query(
-            query_id, query, name=query_name if query_name != "" else None
+            query_id,
+            query,
+            name=query_name if query_name != "" else None,
+            signal_recipients=signal_recipients,
         )
         if success:
             flash("Query updated", "success")
@@ -301,7 +345,10 @@ def items():
 @app.route("/config")
 def config():
     params = db.get_all_parameters()
-    return render_template("config.html", params=params)
+    signal_contacts_text = signal_contacts_to_text(get_signal_contacts())
+    return render_template(
+        "config.html", params=params, signal_contacts_text=signal_contacts_text
+    )
 
 
 @app.route("/update_config", methods=["POST"])
@@ -318,6 +365,12 @@ def update_config():
     db.set_parameter('signal_api_url', request.form.get('signal_api_url', ''))
     db.set_parameter('signal_phone', request.form.get('signal_phone', ''))
     db.set_parameter('signal_recipient', request.form.get('signal_recipient', ''))
+    # Named contacts (parsed from "Name = +number" lines) and message template
+    contacts = parse_signal_contacts_text(request.form.get('signal_contacts', ''))
+    db.set_parameter('signal_contacts', json.dumps(contacts))
+    db.set_parameter(
+        'signal_message_template', request.form.get('signal_message_template', '')
+    )
 
     # Update RSS parameters
     rss_enabled = "rss_enabled" in request.form

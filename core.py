@@ -8,7 +8,7 @@ from logger import get_logger
 logger = get_logger(__name__)
 
 
-def process_query(query, name=None):
+def process_query(query, name=None, signal_recipients=None):
     """
     Process a Vinted query URL by:
     1. Checking if the URL is a brand URL and converting it to standard format if needed
@@ -79,7 +79,7 @@ def process_query(query, name=None):
         return "Query already exists.", False
     else:
         # add the query to the db
-        db.add_query_to_db(processed_query, name)
+        db.add_query_to_db(processed_query, name, signal_recipients)
         return "Query added.", True
 
 
@@ -140,7 +140,7 @@ def process_remove_query(number):
         return "Invalid number.", False
 
 
-def process_update_query(query_id, query, name):
+def process_update_query(query_id, query, name, signal_recipients=None):
     """
     Process the update of a query in the database.
 
@@ -148,6 +148,8 @@ def process_update_query(query_id, query, name):
         query_id (int): The ID of the query to update
         query (str): The new Vinted query URL
         name (str, optional): A new name for the query. If provided, it will be used as the query name.
+        signal_recipients (str, optional): Semicolon-separated Signal recipient
+            numbers for this query.
 
     Returns:
         tuple: (message, success)
@@ -180,7 +182,7 @@ def process_update_query(query_id, query, name):
     )
 
     # Update the query in the database
-    if db.update_query_in_db(query_id, processed_query, name):
+    if db.update_query_in_db(query_id, processed_query, name, signal_recipients):
         return "Query updated.", True
     else:
         return "Failed to update query.", False
@@ -346,9 +348,26 @@ def clear_item_queue(items_queue, new_items_queue):
                     brand=item.brand_title,
                     image=None if item.photo is None else item.photo,
                 )
-                # add the item to the queue
-                new_items_queue.put((content, item.url, "Open Vinted", None, None))
-                # new_items_queue.put((content, item.url, "Open Vinted", item.buy_url, "Open buy page"))
+                # Add the item to the queue as a structured payload. The
+                # dispatcher hands the legacy (content, url, text, buy_url,
+                # buy_text) tuple to Telegram/RSS and the full dict to Signal,
+                # which uses query_id (for per-query recipients) and the raw
+                # fields (for its own message formatting).
+                new_items_queue.put(
+                    {
+                        "content": content,
+                        "url": item.url,
+                        "text": "Open Vinted",
+                        "buy_url": None,
+                        "buy_text": None,
+                        "query_id": query_id,
+                        "title": item.title,
+                        "price": item.price,
+                        "currency": item.currency,
+                        "brand": item.brand_title,
+                        "size": item.size_title,
+                    }
+                )
                 # Add the item to the db
                 db.add_item_to_db(
                     id=item.id,
