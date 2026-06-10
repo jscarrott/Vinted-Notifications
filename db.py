@@ -1,88 +1,26 @@
 import sqlite3
 from traceback import print_exc
 
+DB_PATH = "./data/vinted_notifications.db"
+
 
 def get_db_connection():
-    conn = sqlite3.connect("/db/vinted_notifications.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
-def ensure_required_parameters():
-    """Ensure all required parameters exist in the database."""
-    required_params = {
-        "query_refresh_delay": "60",
-        "items_per_query": "20",
-        "version": "1.0.1",
-        "telegram_enabled": "False",
-        "telegram_token": "",
-        "telegram_chat_id": "",
-        "telegram_process_running": "False",
-        "signal_enabled": "False",
-        "signal_api_url": "",
-        "signal_phone": "",
-        "signal_recipient": "",
-        "signal_process_running": "False",
-        "rss_enabled": "False",
-        "rss_port": "8080",
-        "rss_max_items": "100",
-        "rss_process_running": "False",
-        "proxy_list": "",
-        "proxy_list_link": "",
-        "check_proxies": "False",
-        "last_proxy_check_time": "0",
-        "github_url": "https://github.com/Fuyucch1/Vinted-Notifications"
-    }
-    
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Check if parameters table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='parameters'")
-        if not cursor.fetchone():
-            # Create parameters table if it doesn't exist
-            cursor.execute("CREATE TABLE parameters (key TEXT, value TEXT)")
-        
-        # Insert or update required parameters
-        for key, default_value in required_params.items():
-            cursor.execute("INSERT OR IGNORE INTO parameters (key, value) VALUES (?, ?)", (key, default_value))
-        
-        conn.commit()
-    except Exception:
-        print_exc()
-    finally:
-        if conn:
-            conn.close()
 
-def create_sqlite_db():
+def create_or_update_sqlite_db(db_path):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
-        # Create tables
-        cursor.execute("CREATE TABLE IF NOT EXISTS queries (id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT, last_item NUMERIC)")
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS items (
-                item NUMERIC, 
-                title TEXT, 
-                price NUMERIC, 
-                currency TEXT, 
-                timestamp NUMERIC, 
-                photo_url TEXT, 
-                query_id INTEGER, 
-                FOREIGN KEY(query_id) REFERENCES queries(id)
-            )
-        """)
-        cursor.execute("CREATE TABLE IF NOT EXISTS allowlist (country TEXT)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS parameters (key TEXT, value TEXT)")
-        
+        # Using the sql script
+        with open(db_path, "r", encoding="utf-8") as sql_file:
+            sql_script = sql_file.read()
+            cursor.executescript(sql_script)
+
         conn.commit()
-        
-        # Ensure all required parameters exist
-        ensure_required_parameters()
-        
     except Exception:
         print_exc()
     finally:
@@ -93,10 +31,12 @@ def create_sqlite_db():
 def is_item_in_db_by_id(id):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT() FROM items WHERE item=?", (id,))
-        return cursor.fetchone()[0]
+        if cursor.fetchone()[0]:
+            return True
+        return False
     except Exception:
         print_exc()
     finally:
@@ -107,7 +47,7 @@ def is_item_in_db_by_id(id):
 def get_last_timestamp(query_id):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("SELECT last_item FROM queries WHERE id=?", (query_id,))
         result = cursor.fetchone()
@@ -125,9 +65,11 @@ def get_last_timestamp(query_id):
 def update_last_timestamp(query_id, timestamp):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("UPDATE queries SET last_item=? WHERE id=?", (timestamp, query_id))
+        cursor.execute(
+            "UPDATE queries SET last_item=? WHERE id=?", (timestamp, query_id)
+        )
         conn.commit()
     except Exception:
         print_exc()
@@ -144,9 +86,12 @@ def add_item_to_db(id, title, query_id, price, timestamp, photo_url, currency="E
         # Insert into db the id and the query_id related to the item
         cursor.execute(
             "INSERT INTO items (item, title, price, currency, timestamp, photo_url, query_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (id, title, price, currency, timestamp, photo_url, query_id))
+            (id, title, price, currency, timestamp, photo_url, query_id),
+        )
         # Update the last item for the query
-        cursor.execute("UPDATE queries SET last_item=? WHERE id=?", (timestamp, query_id))
+        cursor.execute(
+            "UPDATE queries SET last_item=? WHERE id=?", (timestamp, query_id)
+        )
         conn.commit()
     except Exception:
         print_exc()
@@ -154,12 +99,13 @@ def add_item_to_db(id, title, query_id, price, timestamp, photo_url, currency="E
         if conn:
             conn.close()
 
+
 def get_queries():
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT id, query, last_item FROM queries")
+        cursor.execute("SELECT id, query, last_item, query_name FROM queries")
         return cursor.fetchall()
     except Exception:
         print_exc()
@@ -171,11 +117,13 @@ def get_queries():
 def is_query_in_db(processed_query):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         # replace spaces in searched_text by % to match any query containing the searched text
 
-        cursor.execute("SELECT COUNT() FROM queries WHERE query = ?", (processed_query,))
+        cursor.execute(
+            "SELECT COUNT() FROM queries WHERE query = ?", (processed_query,)
+        )
         if cursor.fetchone()[0]:
             return True
         return False
@@ -186,12 +134,21 @@ def is_query_in_db(processed_query):
         if conn:
             conn.close()
 
-def add_query_to_db(query):
+
+def add_query_to_db(query, name=None):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO queries (query, last_item) VALUES (?, NULL)", (query,))
+        if name:
+            cursor.execute(
+                "INSERT INTO queries (query, last_item, query_name) VALUES (?, NULL, ?)",
+                (query, name),
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO queries (query, last_item) VALUES (?, NULL)", (query,)
+            )
         conn.commit()
     except Exception:
         print_exc()
@@ -199,22 +156,36 @@ def add_query_to_db(query):
         if conn:
             conn.close()
 
+
+def get_query_id_by_rowid(rowid):
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        query = f"SELECT id FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY ROWID) rn FROM queries) t WHERE rn={rowid}"
+        cursor.execute(query)
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+        return None
+    except Exception:
+        print_exc()
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
 def remove_query_from_db(query_number):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # Get the query and its ID based on the row number
-        query_string = f"SELECT id, query, rowid FROM (SELECT id, query, rowid, ROW_NUMBER() OVER (ORDER BY ROWID) rn FROM queries) t WHERE rn={query_number}"
-        cursor.execute(query_string)
-        query_result = cursor.fetchone()
-        if query_result:
-            query_id, query_text, rowid = query_result
-            # Delete items associated with this query using query_id
-            cursor.execute("DELETE FROM items WHERE query_id=?", (query_id,))
-            # Delete the query
-            cursor.execute("DELETE FROM queries WHERE ROWID=?", (rowid,))
-            conn.commit()
+        # Delete items associated with this query using query_id
+        cursor.execute("DELETE FROM items WHERE query_id=?", (query_number,))
+        # Delete the query
+        cursor.execute("DELETE FROM queries WHERE id=?", (query_number,))
+        conn.commit()
     except Exception:
         print_exc()
     finally:
@@ -225,7 +196,7 @@ def remove_query_from_db(query_number):
 def remove_all_queries_from_db():
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         # Delete all items first to maintain foreign key integrity
         cursor.execute("DELETE FROM items")
@@ -239,10 +210,40 @@ def remove_all_queries_from_db():
             conn.close()
 
 
+def update_query_in_db(query_id, query, name):
+    """
+    Update an existing query in the database.
+
+    Args:
+        query_id (int): The ID of the query to update
+        query (str): The new query URL
+        name (str, optional): The new name for the query
+
+    Returns:
+        bool: True if the query was updated successfully, False otherwise
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE queries SET query=?, query_name=? WHERE id=?",
+            (query, name, query_id),
+        )
+        conn.commit()
+        return True
+    except Exception:
+        print_exc()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
 def add_to_allowlist(country):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("INSERT INTO allowlist VALUES (?)", (country,))
         conn.commit()
@@ -252,10 +253,11 @@ def add_to_allowlist(country):
         if conn:
             conn.close()
 
+
 def remove_from_allowlist(country):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("DELETE FROM allowlist WHERE country=?", (country,))
         conn.commit()
@@ -265,10 +267,11 @@ def remove_from_allowlist(country):
         if conn:
             conn.close()
 
+
 def get_allowlist():
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM allowlist")
         # Get list of countries
@@ -285,7 +288,7 @@ def get_allowlist():
 def clear_allowlist():
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("DELETE FROM allowlist")
         conn.commit()
@@ -299,7 +302,7 @@ def clear_allowlist():
 def get_parameter(key):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM parameters WHERE key=?", (key,))
         result = cursor.fetchone()
@@ -314,7 +317,7 @@ def get_parameter(key):
 def set_parameter(key, value):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("UPDATE parameters SET value=? WHERE key=?", (value, key))
         conn.commit()
@@ -328,7 +331,7 @@ def set_parameter(key, value):
 def get_all_parameters():
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("SELECT key, value FROM parameters")
         return {row[0]: row[1] for row in cursor.fetchall()}
@@ -343,7 +346,7 @@ def get_all_parameters():
 def get_items(limit=50, query=None):
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         if query:
             # Get the query_id for the given query
@@ -353,15 +356,17 @@ def get_items(limit=50, query=None):
                 query_id = result[0]
                 # Get items with the matching query_id
                 cursor.execute(
-                    "SELECT i.item, i.title, i.price, i.currency, i.timestamp, q.query, i.photo_url FROM items i JOIN queries q ON i.query_id = q.id WHERE i.query_id=? ORDER BY i.timestamp DESC LIMIT ?",
-                    (query_id, limit))
+                    "SELECT i.item, i.title, i.price, i.currency, i.timestamp, q.query, i.photo_url, q.query_name FROM items i JOIN queries q ON i.query_id = q.id WHERE i.query_id=? ORDER BY i.timestamp DESC LIMIT ?",
+                    (query_id, limit),
+                )
             else:
                 return []
         else:
             # Join with queries table to get the query text
             cursor.execute(
-                "SELECT i.item, i.title, i.price, i.currency, i.timestamp, q.query, i.photo_url FROM items i JOIN queries q ON i.query_id = q.id ORDER BY i.timestamp DESC LIMIT ?",
-                (limit,))
+                "SELECT i.item, i.title, i.price, i.currency, i.timestamp, q.query, i.photo_url, q.query_name FROM items i JOIN queries q ON i.query_id = q.id ORDER BY i.timestamp DESC LIMIT ?",
+                (limit,),
+            )
         return cursor.fetchall()
     except Exception:
         print_exc()
@@ -374,7 +379,7 @@ def get_items(limit=50, query=None):
 def get_total_items_count():
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM items")
         return cursor.fetchone()[0]
@@ -389,7 +394,7 @@ def get_total_items_count():
 def get_total_queries_count():
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM queries")
         return cursor.fetchone()[0]
@@ -404,10 +409,11 @@ def get_total_queries_count():
 def get_last_found_item():
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT i.item, i.title, i.price, i.currency, i.timestamp, q.query, i.photo_url FROM items i JOIN queries q ON i.query_id = q.id ORDER BY i.timestamp DESC LIMIT 1")
+            "SELECT i.item, i.title, i.price, i.currency, i.timestamp, q.query, i.photo_url FROM items i JOIN queries q ON i.query_id = q.id ORDER BY i.timestamp DESC LIMIT 1"
+        )
         return cursor.fetchone()
     except Exception:
         print_exc()
@@ -420,7 +426,7 @@ def get_last_found_item():
 def get_items_per_day():
     conn = None
     try:
-        conn = sqlite3.connect("/db/vinted_notifications.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         # Get total items
@@ -436,6 +442,7 @@ def get_items_per_day():
 
         # Calculate number of days (add 1 to include both start and end days)
         import datetime
+
         min_date = datetime.datetime.fromtimestamp(min_timestamp).date()
         max_date = datetime.datetime.fromtimestamp(max_timestamp).date()
         days_diff = (max_date - min_date).days + 1

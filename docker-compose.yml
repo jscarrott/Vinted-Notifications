@@ -5,28 +5,24 @@ networks:
     name: vinted-network
     driver: bridge
 
-volumes:
-  vinted-db:
-    name: vinted-db
-  vinted-logs:
-    name: vinted-logs
-  signal-data:
-    name: signal-data
-
 services:
-  vinted-notifier:
+  vinted-notifications:
+    # Build locally so the Signal plugin (signal_plugin/) is included in the image.
+    # Swap back to `image: fuyucch1/vinted-notifications:latest` if you don't need Signal.
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: vinted-notifier
-    volumes:
-      - vinted-db:/db
-      - vinted-logs:/logs
-    environment:
-      - TZ=UTC
-    restart: unless-stopped
+    container_name: vinted-notifications
     ports:
-      - "7777:8000"
+      - "8000:8000"
+      - "8080:8080"
+    volumes:
+      - VN_data:/app/data
+      - VN_logs:/app/logs
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
     depends_on:
       - signal-cli-rest-api
     networks:
@@ -40,9 +36,15 @@ services:
     environment:
       - MODE=normal
       - AUTO_RECEIVE_SMS=true
-      - SIGNAL_CLI_ACCOUNT=${SIGNAL_PHONE}  # Will be set from .env file
+      - SIGNAL_CLI_ACCOUNT=${SIGNAL_PHONE}  # Set from .env file
     ports:
       - "7778:8080"
     restart: unless-stopped
     networks:
       - vinted-network
+
+volumes:
+  VN_data:
+  VN_logs:
+  signal-data:
+    name: signal-data

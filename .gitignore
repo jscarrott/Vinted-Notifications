@@ -4,6 +4,10 @@ vinted.db
 /logs/vinted.log
 /vinted_notifications.db
 
+# Runtime data
+/data/
+/logs/
+
 # Docker
 /signal-data
 .env
