@@ -252,18 +252,27 @@ if __name__ == "__main__":
 
     # Run db migrations
     current_version = db.get_parameter("version")
-    # Check if there is a file that starts with the current version in the migrations folder. We keep comparing until
-    # we find no migration files that start with the current version.
+    # Find the migration whose filename is "<current_version>_<next_version>.sql".
+    # Match on the version PLUS the "_" separator: matching on the bare version is
+    # ambiguous because e.g. "1.0.5" is also a prefix of "1.0.5.1_...", and
+    # os.listdir() order is not sorted, so it could skip migrations.
     migration_files = [f for f in os.listdir("migrations")]
     while True:
         migration_file = next(
-            (f for f in migration_files if f.startswith(current_version)), None
+            (f for f in migration_files if f.startswith(current_version + "_")), None
         )
         if migration_file:
             logger.info(f"Running migration: {migration_file}")
             db.create_or_update_sqlite_db("./migrations/" + migration_file)
             # Increment the version
-            current_version = db.get_parameter("version")
+            new_version = db.get_parameter("version")
+            if new_version == current_version:
+                # Migration did not advance the version; stop to avoid a loop
+                logger.error(
+                    f"Migration {migration_file} did not change version {current_version}; stopping"
+                )
+                break
+            current_version = new_version
         else:
             break
 

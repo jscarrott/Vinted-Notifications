@@ -1,5 +1,5 @@
 name: Vinted Notifications
-version: "1.0.5.7"
+version: "1.0.5.8"
 slug: vinted_notifications
 description: Vinted search notifications with a web UI, plus Telegram, RSS and Signal delivery
 url: https://github.com/jscarrott/Vinted-Notifications
@@ -12,16 +12,18 @@ arch:
 image: "ghcr.io/jscarrott/{arch}-vinted-notifications"
 # Plain python image, no s6 init layer
 init: false
-# Restart unless explicitly stopped
-boot: auto
-# Supervisor restarts the add-on if the Web UI stops responding
-watchdog: "http://[HOST]:[PORT:8000]/"
+# Start manually; flip to "auto" once you've confirmed it runs cleanly. Auto
+# start plus a watchdog turned a failed start into a restart loop, so both are
+# intentionally conservative here.
+boot: manual
+# RSS host port is 8099 to avoid clashing with the Signal add-on's host 8080.
+# (Container still serves RSS on 8080 internally.)
 ports:
   8000/tcp: 8000
-  8080/tcp: 8080
+  8080/tcp: 8099
 ports_description:
   8000/tcp: Web UI
-  8080/tcp: RSS feed
+  8080/tcp: RSS feed (host 8099)
 webui: "http://[HOST]:[PORT:8000]/"
 # All configuration (queries, Telegram, Signal, RSS, proxies) is done in the
 # web UI and stored in the SQLite DB on the persistent /data mount.
