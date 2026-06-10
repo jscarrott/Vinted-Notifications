@@ -25,6 +25,19 @@ services:
       - /tmp
     depends_on:
       - signal-cli-rest-api
+      - flaresolverr
+    networks:
+      - vinted-network
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=UTC
+    ports:
+      - "8191:8191"
+    restart: unless-stopped
     networks:
       - vinted-network
 
