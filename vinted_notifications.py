@@ -70,10 +70,10 @@ def signal_bot_process(queue):
     logger.info("Signal bot process started")
     import asyncio
     try:
-        # Import SignalBot
-        from signal_plugin.signal_bot import SignalBot
+        # Import the Signal bot entry point
+        from signal_plugin.signal_bot import run_signal_bot
         # Create and run the Signal bot
-        asyncio.run(SignalBot(queue))
+        asyncio.run(run_signal_bot(queue))
     except (KeyboardInterrupt, SystemExit):
         logger.info("Signal bot process stopped")
     except Exception as e:
