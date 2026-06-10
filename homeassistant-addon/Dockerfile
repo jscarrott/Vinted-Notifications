@@ -24,4 +24,8 @@ LABEL \
   io.hass.name="Vinted Notifications" \
   io.hass.type="addon"
 
+# Report unhealthy if the Web UI stops responding (stdlib only, no curl needed)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=5)" || exit 1
+
 CMD ["python", "vinted_notifications.py"]

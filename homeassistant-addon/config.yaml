@@ -7,10 +7,15 @@ arch:
   - aarch64
   - amd64
   - armv7
+# Prebuilt images published by the GitHub Action (ghcr.io). HA pulls these
+# instead of building on-device. To build locally instead, remove this line.
+image: "ghcr.io/jscarrott/{arch}-vinted-notifications"
 # Plain python image, no s6 init layer
 init: false
 # Restart unless explicitly stopped
 boot: auto
+# Supervisor restarts the add-on if the Web UI stops responding
+watchdog: "http://[HOST]:[PORT:8000]/"
 ports:
   8000/tcp: 8000
   8080/tcp: 8080

@@ -7,16 +7,26 @@ community add-ons (see below).
 
 ## Prerequisites
 
-This add-on is built by cloning the app from GitHub, so your changes must be
-pushed to your fork first:
+Push your changes to your fork first:
 
 ```bash
 git push origin main
 ```
 
-The Dockerfile clones `https://github.com/jscarrott/Vinted-Notifications`
-(branch `main`) at build time. Pin a different ref via the `VN_REF` build arg
-if you prefer a tag/commit.
+The add-on ships with **prebuilt images**. On every push to `main` that
+touches `homeassistant-addon/**`, the `Build add-on images` GitHub Action
+builds `aarch64`/`amd64`/`armv7` images and pushes them to GHCR
+(`ghcr.io/jscarrott/<arch>-vinted-notifications`). Home Assistant then *pulls*
+the image instead of building on-device, so installs are fast.
+
+After the first successful workflow run, **make the GHCR packages public** so
+HA can pull them without auth: GitHub → your profile → Packages → each
+`*-vinted-notifications` package → Package settings → Change visibility →
+Public.
+
+> Build on-device instead? Remove the `image:` line from `config.yaml`. Then HA
+> builds the `Dockerfile`, which clones the app from GitHub at build time
+> (override the source with the `VN_REPO` / `VN_REF` build args).
 
 ## Install
 
