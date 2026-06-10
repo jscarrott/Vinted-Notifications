@@ -371,6 +371,7 @@ def update_config():
     db.set_parameter(
         'signal_message_template', request.form.get('signal_message_template', '')
     )
+    db.set_parameter('signal_include_image', str('signal_include_image' in request.form))
 
     # Update RSS parameters
     rss_enabled = "rss_enabled" in request.form

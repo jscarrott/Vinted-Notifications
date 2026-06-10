@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import re
 from collections import defaultdict
 
@@ -25,10 +26,6 @@ class SignalBot:
         # Get Signal configuration from database
         self.signal_api_url = db.get_parameter("signal_api_url")
         self.signal_phone = db.get_parameter("signal_phone")
-        # Global default recipient(s); used when a query has no specific ones.
-        self.default_recipients = self._parse_recipients(
-            db.get_parameter("signal_recipient")
-        )
 
         # The shared queue of new items to send to Signal
         self.new_items_queue = queue
@@ -43,11 +40,34 @@ class SignalBot:
         return [r.strip() for r in re.split(r"[;,]", value) if r.strip()]
 
     def _recipients_for(self, query_id):
-        """Resolve the recipients for an item, falling back to the default."""
+        """Resolve the recipients for an item, falling back to the default.
+
+        Read fresh each time so config changes take effect without a restart.
+        """
         recipients = []
         if query_id is not None:
             recipients = db.get_query_signal_recipients(query_id)
-        return recipients or self.default_recipients
+        if recipients:
+            return recipients
+        return self._parse_recipients(db.get_parameter("signal_recipient"))
+
+    async def _fetch_attachment(self, url):
+        """Download an image URL and return it as a base64 data URI, or None."""
+        if not url:
+            return None
+        try:
+            response = await asyncio.to_thread(requests.get, url, timeout=15)
+            if response.status_code != 200:
+                logger.warning(
+                    f"Could not fetch item image ({response.status_code}); sending text only"
+                )
+                return None
+            mime = response.headers.get("Content-Type", "image/jpeg").split(";")[0]
+            encoded = base64.b64encode(response.content).decode("ascii")
+            return f"data:{mime};base64,{encoded}"
+        except Exception as e:
+            logger.warning(f"Error fetching item image, sending text only: {e}")
+            return None
 
     def _format_message(self, item):
         """Build the Signal message for an item using the configured template."""
@@ -102,16 +122,24 @@ class SignalBot:
             return
 
         message = self._format_message(item)
+        payload = {
+            "message": message,
+            "number": self.signal_phone,
+            "recipients": recipients,
+        }
+
+        # Optionally attach the item photo
+        if db.get_parameter("signal_include_image") == "True":
+            attachment = await self._fetch_attachment(item.get("photo"))
+            if attachment:
+                payload["base64_attachments"] = [attachment]
+
         try:
             # signal-cli-rest-api is synchronous; run it off the event loop
             response = await asyncio.to_thread(
                 requests.post,
                 f"{self.signal_api_url}/v2/send",
-                json={
-                    "message": message,
-                    "number": self.signal_phone,
-                    "recipients": recipients,
-                },
+                json=payload,
             )
 
             if response.status_code == 201:

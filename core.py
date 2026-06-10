@@ -366,6 +366,7 @@ def clear_item_queue(items_queue, new_items_queue):
                         "currency": item.currency,
                         "brand": item.brand_title,
                         "size": item.size_title,
+                        "photo": item.photo,
                     }
                 )
                 # Add the item to the db
