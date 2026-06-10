@@ -14,8 +14,9 @@ services:
       dockerfile: Dockerfile
     container_name: vinted-notifications
     ports:
-      - "8000:8000"
-      - "8080:8080"
+      # host:container — host 8000/8080 are taken by other stacks, so remap
+      - "7777:8000"  # Web UI
+      - "7779:8080"  # RSS feed
     volumes:
       - VN_data:/app/data
       - VN_logs:/app/logs
