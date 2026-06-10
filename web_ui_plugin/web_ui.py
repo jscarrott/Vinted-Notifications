@@ -77,6 +77,7 @@ def index():
     # Get process status from the database
     telegram_running = db.get_parameter('telegram_process_running') == 'True'
     rss_running = db.get_parameter('rss_process_running') == 'True'
+    signal_running = db.get_parameter('signal_process_running') == 'True'
 
     # Get statistics for the dashboard
     stats = {
@@ -106,6 +107,7 @@ def index():
                            items=formatted_items,
                            telegram_running=telegram_running,
                            rss_running=rss_running,
+                           signal_running=signal_running,
                            stats=stats)
 
 
@@ -243,17 +245,24 @@ def update_config():
     db.set_parameter('telegram_token', request.form.get('telegram_token', ''))
     db.set_parameter('telegram_chat_id', request.form.get('telegram_chat_id', ''))
 
+    # Update Signal parameters
+    signal_enabled = 'signal_enabled' in request.form
+    db.set_parameter('signal_enabled', str(signal_enabled))
+    db.set_parameter('signal_api_url', request.form.get('signal_api_url', ''))
+    db.set_parameter('signal_phone', request.form.get('signal_phone', ''))
+    db.set_parameter('signal_recipient', request.form.get('signal_recipient', ''))
+
     # Update RSS parameters
     rss_enabled = 'rss_enabled' in request.form
     db.set_parameter('rss_enabled', str(rss_enabled))
     db.set_parameter('rss_port', request.form.get('rss_port', '8080'))
     db.set_parameter('rss_max_items', request.form.get('rss_max_items', '100'))
 
-    # Update System parameters
+    # Update system parameters
     db.set_parameter('items_per_query', request.form.get('items_per_query', '20'))
     db.set_parameter('query_refresh_delay', request.form.get('query_refresh_delay', '60'))
 
-    # Update Proxy parameters
+    # Update proxy parameters
     check_proxies = 'check_proxies' in request.form
     db.set_parameter('check_proxies', str(check_proxies))
     db.set_parameter('proxy_list', request.form.get('proxy_list', ''))
@@ -263,13 +272,13 @@ def update_config():
     db.set_parameter('last_proxy_check_time', "1")
     logger.info("Proxy settings updated, cache reset")
 
-    flash('Configuration updated', 'success')
+    flash('Configuration updated successfully', 'success')
     return redirect(url_for('config'))
 
 
 @app.route('/control/<process_name>/<action>', methods=['POST'])
 def control_process(process_name, action):
-    if process_name not in ['telegram', 'rss']:
+    if process_name not in ['telegram', 'rss', 'signal']:
         return jsonify({'status': 'error', 'message': 'Invalid process name'})
 
     if action == 'start':
@@ -302,6 +311,25 @@ def control_process(process_name, action):
             logger.info("RSS feed process start requested")
             return jsonify({'status': 'success', 'message': 'RSS feed start requested'})
 
+        elif process_name == 'signal':
+            # Check current status
+            if db.get_parameter('signal_process_running') == 'True':
+                return jsonify({'status': 'warning', 'message': 'Signal bot already running'})
+
+            # Check if required parameters are set
+            signal_api_url = db.get_parameter('signal_api_url')
+            signal_phone = db.get_parameter('signal_phone')
+            signal_recipient = db.get_parameter('signal_recipient')
+            if not signal_api_url or not signal_phone or not signal_recipient:
+                return jsonify({'status': 'error',
+                                'message': 'Please set Signal API URL, phone number, and recipient in the configuration panel before starting the Signal process'})
+
+            # Update process status in the database
+            # The manager process will detect this and start the process
+            db.set_parameter('signal_process_running', 'True')
+            logger.info("Signal bot process start requested")
+            return jsonify({'status': 'success', 'message': 'Signal bot start requested'})
+
     elif action == 'stop':
         if process_name == 'telegram':
             # Check current status
@@ -325,6 +353,17 @@ def control_process(process_name, action):
             logger.info("RSS feed process stop requested")
             return jsonify({'status': 'success', 'message': 'RSS feed stop requested'})
 
+        elif process_name == 'signal':
+            # Check current status
+            if db.get_parameter('signal_process_running') != 'True':
+                return jsonify({'status': 'warning', 'message': 'Signal bot not running'})
+
+            # Update process status in the database
+            # The manager process will detect this and stop the process
+            db.set_parameter('signal_process_running', 'False')
+            logger.info("Signal bot process stop requested")
+            return jsonify({'status': 'success', 'message': 'Signal bot stop requested'})
+
     return jsonify({'status': 'error', 'message': 'Invalid action'})
 
 
@@ -333,10 +372,12 @@ def process_status():
     # Get process status from the database
     telegram_running = db.get_parameter('telegram_process_running') == 'True'
     rss_running = db.get_parameter('rss_process_running') == 'True'
+    signal_running = db.get_parameter('signal_process_running') == 'True'
 
     return jsonify({
         'telegram': telegram_running,
-        'rss': rss_running
+        'rss': rss_running,
+        'signal': signal_running
     })
 
 
@@ -388,7 +429,7 @@ def api_logs():
     limit = int(request.args.get('limit', 100))
     level_filter = request.args.get('level', 'all')
 
-    log_file_path = os.path.join('logs', 'vinted.log')
+    log_file_path = os.path.join('/logs', 'vinted.log')
 
     if not os.path.exists(log_file_path):
         return jsonify({'logs': [], 'total': 0})
@@ -447,6 +488,83 @@ def api_logs():
         'logs': log_entries,
         'total': total_matching_entries
     })
+
+
+@app.route('/check_signal_status')
+def check_signal_status():
+    """Check if the Signal bot is running and properly configured."""
+    try:
+        # Check if Signal is enabled
+        signal_enabled = db.get_parameter('signal_enabled') == 'True'
+        if not signal_enabled:
+            return jsonify({
+                'status': 'disabled',
+                'message': 'Signal bot is disabled'
+            })
+
+        # Check if required parameters are set
+        signal_api_url = db.get_parameter('signal_api_url')
+        signal_phone = db.get_parameter('signal_phone')
+        signal_recipient = db.get_parameter('signal_recipient')
+
+        missing_params = []
+        if not signal_api_url:
+            missing_params.append('Signal API URL')
+        if not signal_phone:
+            missing_params.append('Phone Number')
+        if not signal_recipient:
+            missing_params.append('Recipient')
+
+        if missing_params:
+            return jsonify({
+                'status': 'error',
+                'message': f'Missing required parameters: {", ".join(missing_params)}'
+            })
+
+        # Check if process is running
+        signal_running = db.get_parameter('signal_process_running') == 'True'
+        if not signal_running:
+            return jsonify({
+                'status': 'stopped',
+                'message': 'Signal bot is not running'
+            })
+
+        # Try to send a test message
+        try:
+            import requests
+            test_message = "🔔 Vinted Notifications Test Message\n\nThis is a test message to verify your Signal configuration is working correctly."
+            
+            response = requests.post(
+                f"{signal_api_url}/v2/send",
+                json={
+                    "message": test_message,
+                    "number": signal_phone,
+                    "recipients": [signal_recipient]
+                }
+            )
+            
+            if response.status_code == 201:
+                return jsonify({
+                    'status': 'running',
+                    'message': 'Signal bot is running and test message sent successfully'
+                })
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Signal bot is running but failed to send test message: {response.text}'
+                })
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'message': f'Signal bot is running but failed to send test message: {str(e)}'
+            })
+
+    except Exception as e:
+        logger.error(f"Error checking Signal status: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Error checking Signal status: {str(e)}'
+        })
 
 
 def web_ui_process():

@@ -10,6 +10,7 @@ logger = get_logger(__name__)
 # Global process references
 telegram_process = None
 rss_process = None
+signal_process = None
 scrape_process = None
 current_query_refresh_delay = None
 
@@ -44,7 +45,21 @@ def item_extractor(items_queue, new_items_queue):
         logger.info("Consumer process stopped")
 
 
-def dispatcher_function(input_queue, rss_queue, telegram_queue):
+def signal_bot_process(queue):
+    logger.info("Signal bot process started")
+    import asyncio
+    try:
+        # Import SignalBot
+        from signal_plugin.signal_bot import SignalBot
+        # Create and run the Signal bot
+        asyncio.run(SignalBot(queue))
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Signal bot process stopped")
+    except Exception as e:
+        logger.error(f"Error in Signal bot process: {e}", exc_info=True)
+
+
+def dispatcher_function(input_queue, rss_queue, telegram_queue, signal_queue):
     logger.info("Dispatcher process started")
     try:
         while True:
@@ -52,8 +67,10 @@ def dispatcher_function(input_queue, rss_queue, telegram_queue):
             item = input_queue.get()
             # Send to RSS queue
             rss_queue.put(item)
-            #
+            # Send to Telegram queue
             telegram_queue.put(item)
+            # Send to Signal queue
+            signal_queue.put(item)
     except (KeyboardInterrupt, SystemExit):
         logger.info("Dispatcher process stopped")
     except Exception as e:
@@ -105,8 +122,8 @@ def check_refresh_delay(items_queue):
         logger.error(f"Error updating refresh delay: {e}", exc_info=True)
 
 
-def monitor_processes(items_queue, telegram_queue, rss_queue):
-    global telegram_process, rss_process
+def monitor_processes(items_queue, telegram_queue, rss_queue, signal_queue):
+    global telegram_process, rss_process, signal_process
 
     # Check if the query refresh delay has changed
     check_refresh_delay(items_queue)
@@ -150,23 +167,49 @@ def monitor_processes(items_queue, telegram_queue, rss_queue):
         rss_process.join()
         rss_process = None
 
+    ### SIGNAL ###
+    # Check Signal process status
+    signal_should_run = db.get_parameter('signal_process_running') == 'True'
+    # Check if the Signal configuration is set
+    signal_api_url = db.get_parameter('signal_api_url')
+    signal_phone = db.get_parameter('signal_phone')
+    signal_recipient = db.get_parameter('signal_recipient')
+    if not signal_api_url or not signal_phone or not signal_recipient:
+        signal_should_run = False
+    signal_is_running = signal_process is not None and signal_process.is_alive()
+
+    if signal_should_run and not signal_is_running:
+        # Start Signal process
+        logger.info("Starting Signal bot process.")
+        signal_process = multiprocessing.Process(target=signal_bot_process, args=(signal_queue,))
+        signal_process.start()
+    elif not signal_should_run and signal_is_running:
+        # Stop Signal process
+        logger.info("Stopping Signal bot process.")
+        signal_process.terminate()
+        signal_process.join()
+        signal_process = None
+
 
 def plugin_checker():
-    # Get telegram and rss enable status
+    # Get plugin enable status
     telegram_enabled = db.get_parameter('telegram_enabled')
     logger.info("Telegram enabled: {}".format(telegram_enabled))
     rss_enabled = db.get_parameter('rss_enabled')
     logger.info("RSS enabled: {}".format(rss_enabled))
+    signal_enabled = db.get_parameter('signal_enabled')
+    logger.info("Signal enabled: {}".format(signal_enabled))
 
     # Reset process status at startup
     db.set_parameter('telegram_process_running', telegram_enabled)
     db.set_parameter('rss_process_running', rss_enabled)
+    db.set_parameter('signal_process_running', signal_enabled)
 
 
 if __name__ == "__main__":
     # Starting sequence
     # Db check
-    if not os.path.exists("./vinted_notifications.db"):
+    if not os.path.exists("/db/vinted_notifications.db"):
         db.create_sqlite_db()
         logger.info("Database created successfully")
     # Set version
@@ -180,6 +223,7 @@ if __name__ == "__main__":
     new_items_queue = multiprocessing.Queue()
     rss_queue = multiprocessing.Queue()
     telegram_queue = multiprocessing.Queue()
+    signal_queue = multiprocessing.Queue()
 
     # 1. Create and start the scrape process
     # This process will scrape items and put them in the items_queue
@@ -195,15 +239,14 @@ if __name__ == "__main__":
     # 3. Create the dispatcher process
     # This process will handle the new items and send them to the enabled services
     dispatcher_process = multiprocessing.Process(target=dispatcher_function,
-                                                 args=(new_items_queue, rss_queue, telegram_queue,))
+                                               args=(new_items_queue, rss_queue, telegram_queue, signal_queue))
     dispatcher_process.start()
 
-    # 4. Set up a scheduler to monitor processes
-    # This will check the process status in the database and start/stop processes as needed
-    monitor_scheduler = BackgroundScheduler()
-    monitor_scheduler.add_job(monitor_processes, 'interval', seconds=5, args=[items_queue, telegram_queue, rss_queue],
-                              name="process_monitor")
-    monitor_scheduler.start()
+    # 4. Start the monitor process
+    # This process will monitor and manage all other processes
+    monitor_process = multiprocessing.Process(target=monitor_processes,
+                                            args=(items_queue, telegram_queue, rss_queue, signal_queue))
+    monitor_process.start()
 
     # 5. Create and start the Web UI process
     # This process will provide a web interface to control the application
@@ -211,54 +254,15 @@ if __name__ == "__main__":
     web_ui_process_instance.start()
     logger.info(f"Web UI started on port {configuration_values.WEB_UI_PORT}")
 
-
+    # Keep the main process running
     try:
-        # Wait for processes to finish (which they won't unless interrupted)
-        scrape_process.join()
-        item_extractor_process.join()
-        dispatcher_process.join()
-        web_ui_process_instance.join()
-
-        # plugins
-        if telegram_process:
-            telegram_process.join()
-        if rss_process:
-            rss_process.join()
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
-        # Handle Ctrl+C gracefully
-        logger.info("Main process interrupted")
-
-        # Shutdown the monitor scheduler
-        monitor_scheduler.shutdown()
-
-        # Terminate all processes
-        scrape_process.terminate()
-        item_extractor_process.terminate()
-        dispatcher_process.terminate()
-        # Terminate web UI process
-        web_ui_process_instance.terminate()
-
-        # Plugins
-
-        if telegram_process and telegram_process.is_alive():
-            telegram_process.terminate()
-            # Set the process status in the database
-            db.set_parameter('telegram_process_running', 'False')
-        if rss_process and rss_process.is_alive():
-            rss_process.terminate()
-            # Set the process status in the database
-            db.set_parameter('rss_process_running', 'False')
-
-        # Wait for all processes to terminate
-        scrape_process.join()
-        item_extractor_process.join()
-        dispatcher_process.join()
-        web_ui_process_instance.join()
-
-        # Plugins
-        if telegram_process:
-            telegram_process.join()
-        if rss_process:
-            rss_process.join()
-
-        logger.info("All processes terminated")
+        logger.info("Shutting down...")
+        # Clean up processes
+        for process in [scrape_process, item_extractor_process, dispatcher_process, monitor_process,
+                       telegram_process, rss_process, signal_process]:
+            if process and process.is_alive():
+                process.terminate()
+                process.join()

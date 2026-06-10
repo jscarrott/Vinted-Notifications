@@ -91,6 +91,56 @@
                         <div class="col-md-6">
                             <div class="card h-100">
                                 <div class="card-header d-flex align-items-center">
+                                    <i class="bi bi-signal me-2 text-info"></i>
+                                    <h5 class="card-title mb-0">Signal Bot</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <div class="form-check form-switch">
+                                            {% if params.signal_enabled == 'True' %}
+                                            <input class="form-check-input" type="checkbox" id="signal_enabled"
+                                                   name="signal_enabled" checked>
+                                            {% else %}
+                                            <input class="form-check-input" type="checkbox" id="signal_enabled"
+                                                   name="signal_enabled">
+                                            {% endif %}
+                                            <label class="form-check-label" for="signal_enabled">
+                                                Auto Start
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="signal_api_url" class="form-label">Signal API URL</label>
+                                        <input type="text" class="form-control" id="signal_api_url"
+                                               name="signal_api_url" value="{{ params.signal_api_url }}">
+                                        <small class="form-text text-muted">URL of the Signal CLI REST API (e.g., http://signal-cli-rest-api:8080)</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="signal_phone" class="form-label">Phone Number</label>
+                                        <input type="text" class="form-control" id="signal_phone"
+                                               name="signal_phone" value="{{ params.signal_phone }}">
+                                        <small class="form-text text-muted">Your Signal phone number (e.g., +1234567890)</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="signal_recipient" class="form-label">Recipient</label>
+                                        <input type="text" class="form-control" id="signal_recipient"
+                                               name="signal_recipient" value="{{ params.signal_recipient }}">
+                                        <small class="form-text text-muted">Phone number of the recipient (e.g., +1234567890)</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <button type="button" class="btn btn-info" id="check_signal_status">
+                                            <i class="bi bi-info-circle"></i> Check Status
+                                        </button>
+                                        <div id="signal_status_message" class="mt-2"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-header d-flex align-items-center">
                                     <i class="bi bi-rss me-2 text-info"></i>
                                     <h5 class="card-title mb-0">RSS Feed</h5>
                                 </div>
@@ -126,9 +176,7 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="row mb-4">
-                        <div class="col-md-12">
+                        <div class="col-md-6">
                             <div class="card h-100">
                                 <div class="card-header d-flex align-items-center">
                                     <i class="bi bi-shield-lock me-2 text-info"></i>
@@ -216,14 +264,14 @@
                     <div class="col-md-6">
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div>
-                                <h6 class="mb-0">RSS Feed</h6>
-                                <small class="text-muted process-status" data-process="rss">Checking status...</small>
+                                <h6 class="mb-0">Signal Bot</h6>
+                                <small class="text-muted process-status" data-process="signal">Checking status...</small>
                             </div>
                             <div>
-                                <button class="btn btn-success process-control" data-process="rss" data-action="start">
+                                <button class="btn btn-success process-control" data-process="signal" data-action="start">
                                     <i class="bi bi-play-fill"></i> Start
                                 </button>
-                                <button class="btn btn-danger process-control" data-process="rss" data-action="stop">
+                                <button class="btn btn-danger process-control" data-process="signal" data-action="stop">
                                     <i class="bi bi-stop-fill"></i> Stop
                                 </button>
                             </div>
@@ -292,6 +340,54 @@
             });
         });
 
+        // Check Signal status
+        const checkSignalStatusBtn = document.getElementById('check_signal_status');
+        const signalStatusMessage = document.getElementById('signal_status_message');
+
+        if (checkSignalStatusBtn) {
+            checkSignalStatusBtn.addEventListener('click', function() {
+                this.disabled = true;
+                signalStatusMessage.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Checking...';
+
+                fetch('/check_signal_status')
+                    .then(response => response.json())
+                    .then(data => {
+                        let alertClass = 'info';
+                        switch(data.status) {
+                            case 'running':
+                                alertClass = 'success';
+                                break;
+                            case 'error':
+                            case 'stopped':
+                                alertClass = 'danger';
+                                break;
+                            case 'disabled':
+                                alertClass = 'warning';
+                                break;
+                        }
+
+                        signalStatusMessage.innerHTML = `
+                            <div class="alert alert-${alertClass} alert-dismissible fade show" role="alert">
+                                ${data.message}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        `;
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        signalStatusMessage.innerHTML = `
+                            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                Error checking Signal status
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        `;
+                    })
+                    .finally(() => {
+                        this.disabled = false;
+                    });
+            });
+        }
+
         // Check process status
         function checkProcessStatus() {
             fetch('/control/status', {
@@ -302,18 +398,18 @@
                     // Update status text
                     document.querySelector('.process-status[data-process="telegram"]').textContent =
                         data.telegram ? 'Running' : 'Stopped';
-                    document.querySelector('.process-status[data-process="rss"]').textContent =
-                        data.rss ? 'Running' : 'Stopped';
+                    document.querySelector('.process-status[data-process="signal"]').textContent =
+                        data.signal ? 'Running' : 'Stopped';
 
                     // Update button visibility
                     document.querySelector('.process-control[data-process="telegram"][data-action="start"]').style.display =
                         data.telegram ? 'none' : 'inline-block';
                     document.querySelector('.process-control[data-process="telegram"][data-action="stop"]').style.display =
                         data.telegram ? 'inline-block' : 'none';
-                    document.querySelector('.process-control[data-process="rss"][data-action="start"]').style.display =
-                        data.rss ? 'none' : 'inline-block';
-                    document.querySelector('.process-control[data-process="rss"][data-action="stop"]').style.display =
-                        data.rss ? 'inline-block' : 'none';
+                    document.querySelector('.process-control[data-process="signal"][data-action="start"]').style.display =
+                        data.signal ? 'none' : 'inline-block';
+                    document.querySelector('.process-control[data-process="signal"][data-action="stop"]').style.display =
+                        data.signal ? 'inline-block' : 'none';
 
                     // Re-enable buttons
                     document.querySelectorAll('.process-control').forEach(btn => {

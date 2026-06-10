@@ -1,0 +1,48 @@
+version: '3.8'
+
+networks:
+  vinted-network:
+    name: vinted-network
+    driver: bridge
+
+volumes:
+  vinted-db:
+    name: vinted-db
+  vinted-logs:
+    name: vinted-logs
+  signal-data:
+    name: signal-data
+
+services:
+  vinted-notifier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vinted-notifier
+    volumes:
+      - vinted-db:/db
+      - vinted-logs:/logs
+    environment:
+      - TZ=UTC
+    restart: unless-stopped
+    ports:
+      - "7777:8000"
+    depends_on:
+      - signal-cli-rest-api
+    networks:
+      - vinted-network
+
+  signal-cli-rest-api:
+    image: bbernhard/signal-cli-rest-api:latest
+    container_name: signal-cli-rest-api
+    volumes:
+      - signal-data:/home/.local/share/signal-cli
+    environment:
+      - MODE=normal
+      - AUTO_RECEIVE_SMS=true
+      - SIGNAL_CLI_ACCOUNT=${SIGNAL_PHONE}  # Will be set from .env file
+    ports:
+      - "7778:8080"
+    restart: unless-stopped
+    networks:
+      - vinted-network
