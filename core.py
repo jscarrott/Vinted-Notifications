@@ -296,11 +296,21 @@ def process_items(queue):
     # Get the number of items per query from the database
     items_per_query = int(db.get_parameter("items_per_query"))
 
+    # The "new item" window must cover the gap between scrapes, otherwise items
+    # listed in that gap are silently dropped. Scale it to the refresh delay
+    # (2x, to also absorb a missed/late cycle). De-duplication by item id in
+    # clear_item_queue means a wider window never causes duplicate notifications.
+    try:
+        refresh_minutes = int(db.get_parameter("query_refresh_delay")) / 60
+    except (TypeError, ValueError):
+        refresh_minutes = 10
+    new_item_window = max(20, int(refresh_minutes * 2))
+
     # for each keyword we parse data
     for query in all_queries:
         all_items = vinted.items.search(query[1], nbr_items=items_per_query)
         # Filter to only include new items. This should reduce the amount of db calls.
-        data = [item for item in all_items if item.is_new_item()]
+        data = [item for item in all_items if item.is_new_item(minutes=new_item_window)]
         queue.put((data, query[0]))
         logger.info(f"Scraped {len(data)} items for query: {query[1]}")
 

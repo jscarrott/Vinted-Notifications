@@ -1,5 +1,5 @@
 name: Vinted Notifications
-version: "1.0.5.8"
+version: "1.0.5.9"
 slug: vinted_notifications
 description: Vinted search notifications with a web UI, plus Telegram, RSS and Signal delivery
 url: https://github.com/jscarrott/Vinted-Notifications
