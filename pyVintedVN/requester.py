@@ -60,6 +60,33 @@ class Requester:
         self.session.headers.update(self.HEADER)
         self.debug = debug
 
+        # Proactively rotate the session (new cookies + User-Agent) every N
+        # requests, before Vinted's throttling builds up. Tunable via parameter.
+        self.request_count = 0
+        try:
+            self.session_rotate_after = int(
+                db.get_parameter("session_rotate_requests") or 50
+            )
+        except (TypeError, ValueError):
+            self.session_rotate_after = 50
+
+    def rotate_session(self):
+        """Start a fresh session with new cookies and a new User-Agent.
+
+        Long-lived sessions accumulate throttling; rotating proactively (rather
+        than only reactively on a 401/403) keeps requests flowing.
+        """
+        user_agents_json = db.get_parameter("user_agents")
+        user_agents = json.loads(user_agents_json) if user_agents_json else []
+        self.HEADER["User-Agent"] = (
+            random.choice(user_agents) if user_agents else "Mozilla/5.0"
+        )
+        self.session = requests.Session()
+        self.session.headers.update(self.HEADER)
+        self.set_cookies()
+        self.request_count = 0
+        logger.info("Rotated Vinted session (new cookies + User-Agent)")
+
         if self.debug:
             logger.debug(f"Using User-Agent: {self.HEADER['User-Agent']}")
 
@@ -112,6 +139,11 @@ class Requester:
             HTTPError: If the request fails after all retries
         """
 
+        # Proactively rotate the session before throttling kicks in
+        if self.request_count >= self.session_rotate_after:
+            self.rotate_session()
+        self.request_count += 1
+
         # Set a random proxy for this request
         proxy_configured = proxies.configure_proxy(self.session)
         if self.debug and proxy_configured:
@@ -147,6 +179,7 @@ class Requester:
                         new_session = True
                         self.session = requests.Session()
                         self.session.headers.update(self.HEADER)
+                        self.request_count = 0
                         # proxy
                         proxy_configured = proxies.configure_proxy(self.session)
                         if self.debug:

@@ -1,4 +1,6 @@
 import db
+import time
+import random
 import requests
 from pyVintedVN import Vinted, requester
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
@@ -306,8 +308,21 @@ def process_items(queue):
         refresh_minutes = 10
     new_item_window = max(20, int(refresh_minutes * 2))
 
+    # Random jitter between catalog requests so we don't hit Vinted in a
+    # predictable burst, which helps avoid throttling. Tunable via parameters.
+    try:
+        jitter_min = float(db.get_parameter("scrape_jitter_min") or 5)
+        jitter_max = float(db.get_parameter("scrape_jitter_max") or 30)
+    except (TypeError, ValueError):
+        jitter_min, jitter_max = 5, 30
+
     # for each keyword we parse data
-    for query in all_queries:
+    for i, query in enumerate(all_queries):
+        # Space out the requests (no delay before the first one)
+        if i > 0 and jitter_max > 0:
+            delay = random.uniform(min(jitter_min, jitter_max), jitter_max)
+            logger.debug(f"Sleeping {delay:.1f}s before next catalog request")
+            time.sleep(delay)
         all_items = vinted.items.search(query[1], nbr_items=items_per_query)
         # Filter to only include new items. This should reduce the amount of db calls.
         data = [item for item in all_items if item.is_new_item(minutes=new_item_window)]
